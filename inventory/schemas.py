@@ -389,3 +389,28 @@ class OrderFulfillmentSchema(BaseModel):
     pending_orders: int
     completed_orders: int
     delayed_orders: int
+
+
+class InventoryReportSchema(Schema):
+    packaging_type_id: int
+    packaging_type_name: str
+    total_count: int
+    total_cost: float
+
+class SupplierOrderReportSchema(Schema):
+    supplier_name: str
+    material_name: str
+    requested_quantity: float
+    available_quantity: float
+    total_cost: float
+
+
+class BulkCostUpdateSchema(Schema):
+    material_id: int
+    new_cost: float
+
+class SupplierMaterialUsageSchema(Schema):
+    material_name: str
+    total_usage: float
+    remaining_stock: float
+    average_cost: float

@@ -9,7 +9,7 @@ from .schemas import (
     ValidateBarcodeRequestSchema,ValidateBarcodeResponseSchema,BatchBarcodeRequestSchema,BatchBarcodeResponseSchema,ItemFilterSchema,PackagingTypeFilterSchema,UnitsOfMeasurementFilterSchema,
     PackagingMaterialsFilterSchema,WorkOrdersFilterSchema,WarehouseFilterSchema,SortingSchema,SalesOrderSchema,SalesOrderResponseSchema,SupplierResponseSchema,SupplierSchema,SalesOrderFilterSchema,SupplierFilterSchema,
     MaterialRequestSchema,PackagingCostUpdateSchema,CustomerSchema,CustomerFilterSchema,PackageRequestSchema,PackageDeliverySchema,ParentAssignmentSchema,UpdateQuantitySchema,PackagingHierarchyNode,SalesRecordFilterSchema,
-    BillItemSchema,BillSchema1,SalesRecordSchema,CreateSalesSchema,SalesRecordRequestSchema,PackagingTypeDetail,BillSchema,OrderFulfillmentSchema
+    BillItemSchema,BillSchema1,SalesRecordSchema,CreateSalesSchema,SalesRecordRequestSchema,PackagingTypeDetail,BillSchema,OrderFulfillmentSchema,InventoryReportSchema,SupplierOrderReportSchema,BulkCostUpdateSchema,SupplierMaterialUsageSchema
 
 )
 from typing import List,Optional
@@ -1393,3 +1393,107 @@ def generate_bill(request, customer_id: int):
     
 
 
+
+@api.get("/inventory/report", response=List[InventoryReportSchema])
+@permission_required('inventory.view_inventory')
+def generate_inventory_report(request):
+    try:
+        report = []
+        packaging_types = PackagingTypes.objects.all()
+
+        for packaging_type in packaging_types:
+            total_count = packaging_type.quantity
+            total_cost = calculate_total_cost(packaging_type)
+
+            report.append({
+                "packaging_type_id": packaging_type.id,
+                "packaging_type_name": packaging_type.name,
+                "total_count": total_count,
+                "total_cost": total_cost
+            })
+
+        return report
+    except Exception as e:
+        logger.error(f"Internal server error: {str(e)}")
+        raise HttpError(500, "Internal server error, please try again later.")
+
+
+
+@api.get("/suppliers/{supplier_id}", response=SupplierResponseSchema)
+@permission_required('supply_chain.view_supplier')
+def get_supplier_details(request, supplier_id: int):
+    try:
+        supplier = get_object_or_404(Supplier, id=supplier_id)
+        return SupplierResponseSchema.from_orm(supplier)
+    except Supplier.DoesNotExist:
+        logger.error("Supplier does not exist")
+        raise HttpError(400, "Supplier does not exist")
+    except Exception as e:
+        logger.error(f"Internal server error: {str(e)}")
+        raise HttpError(500, "Internal server error, please try again later.")
+
+
+
+@api.get("/supplier/orders/report", response=List[SupplierOrderReportSchema])
+@permission_required('supply_chain.view_supplier_orders')
+def generate_supplier_order_report(request):
+    try:
+        suppliers = Supplier.objects.prefetch_related('packaging_materials').all()
+        report = []
+
+        for supplier in suppliers:
+            for material in supplier.packaging_materials.all():
+                report.append({
+                    "supplier_name": supplier.name,
+                    "material_name": material.name,
+                    "requested_quantity": material.available_quantity,  # This should be replaced with actual requested quantity if available
+                    "available_quantity": material.available_quantity,
+                    "total_cost": material.cost * material.available_quantity
+                })
+
+        return report
+    except Exception as e:
+        logger.error(f"Internal server error: {str(e)}")
+        raise HttpError(500, "Internal server error, please try again later.")
+
+
+
+
+@api.put("/packaging_materials/bulk_update_cost", response={200: dict})
+@permission_required('inventory.change_packagingmaterials')
+def bulk_update_packaging_material_cost(request, payload: List[BulkCostUpdateSchema]):
+    try:
+        for item in payload:
+            material = get_object_or_404(PackagingMaterials, id=item.material_id)
+            material.cost = item.new_cost
+            material.save()
+        return {"message": "Costs updated successfully"}
+    except Exception as e:
+        logger.error(f"Internal server error: {str(e)}")
+        raise HttpError(500, "Internal server error, please try again later.")
+
+
+
+@api.get("/suppliers/{supplier_id}/material_usage", response=List[SupplierMaterialUsageSchema])
+@permission_required('supply_chain.view_supplier_material_usage')
+def get_supplier_material_usage(request, supplier_id: int):
+    try:
+        supplier = get_object_or_404(Supplier, id=supplier_id)
+        materials = supplier.packaging_materials.all()
+        material_usage = [
+            {
+                "material_name": material.name,
+                "total_usage": material.packagingtypes_set.aggregate(
+                    total_usage=Sum('quantity'))['total_usage'] or 0,
+                "remaining_stock": material.available_quantity,
+                "average_cost": material.cost
+            }
+            for material in materials
+        ]
+        return material_usage
+    except Supplier.DoesNotExist:
+        logger.error("Supplier does not exist")
+        raise HttpError(400, "Supplier does not exist")
+    except Exception as e:
+        logger.error(f"Internal server error: {str(e)}")
+        raise HttpError(500, "Internal server error, please try again later.")
