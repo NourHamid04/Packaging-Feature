@@ -337,7 +337,6 @@ class BillSchema1(Schema):
     details: List[BillItemSchema]
 
 
-
 class SalesRecordSchema(Schema):
     order_number: str
     package_id: int
@@ -345,6 +344,7 @@ class SalesRecordSchema(Schema):
     total_cost: float
     customer_name: Optional[str]  # Add this field
     status: str  # Add the status field
+    item_id: Optional[int]  # Make item_id optional
 
 
 class CreateSalesSchema(BaseModel):

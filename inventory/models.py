@@ -217,8 +217,7 @@ class SalesRecord(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, null=True)
     status = models.CharField(max_length=20, default="Pending")
     delivery_date = models.DateTimeField(null=True, blank=True)
+    item = models.ForeignKey('Items', on_delete=models.CASCADE, null=True, blank=True)  
 
     def __str__(self):
         return f"Order {self.order_number} - {self.package.name} x {self.quantity}"
-
-
