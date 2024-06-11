@@ -822,88 +822,38 @@ def validate_barcode(request, payload: ValidateBarcodeRequestSchema):
 
 label_queue = []
 
-
-
-@api.post("/print_label", response=PrintLabelResponseSchema)
-@permission_required('inventory.print_label')
-def print_label(request, packaging_type_id: int, priority: int = 1):
+class LabelOnlyResponseSchema(Schema):
+    label: str
+@api.get("/print_label_by_id", response=LabelOnlyResponseSchema)
+@permission_required('inventory.retrieve_label')
+def print_label_by_id(request, packaging_type_id: int):
     try:
-        packaging_type = get_object_or_404(PackagingTypes, id=packaging_type_id)
-        timestamp = int(time.time() * 1000)  # Get the current timestamp in milliseconds
-        random_number = random.randint(1000, 9999)  # Generate a random 4-digit number
-        barcode_number = f"{packaging_type.id}{timestamp}{random_number}"  # Generate a unique barcode number using the packaging type ID, timestamp, and random number
-        label = {
-            "packaging_type_id": packaging_type.id,
-            "name": f"{packaging_type.name} - {packaging_type.id}",
-            "priority": priority,
-            "timestamp": datetime.now().isoformat(),
-            "status": "pending",
-            "barcode_number": barcode_number  # Add the barcode number to the label
-        }
+        # Call the existing barcode generation function
+        barcode_response = generate_packaging_type_barcode_endpoint(request, packaging_type_id)
+        label = barcode_response['label']
 
-        # Prevent duplicate labels
-        if label not in label_queue:
-            label_queue.append(label)
-            label_queue.sort(key=lambda x: x["priority"])  # Sort by priority
-            return {
-                "message": "Label added to printing queue",
-                "queue_position": label_queue.index(label) + 1,
-                "barcode_number": barcode_number  # Return the barcode number
-            }
-        else:
-            return {
-                "message": "Label already in the queue",
-                "queue_position": label_queue.index(label) + 1,
-                "barcode_number": barcode_number  # Return the barcode number
-            }
-    except ValidationError as e:
-        raise HttpError(400, str(e))
-    except Exception as e:
-        raise HttpError(500, "Internal server error, please try again later.")
+        # Create a new label entry
+       
 
-
-    # Prevent duplicate labels
-    if label not in label_queue:
+        # Push the new label to the queue
         label_queue.append(label)
-        label_queue.sort(key=lambda x: x["priority"])  # Sort by priority
-        return {
-            "message": "Label added to printing queue",
-            "queue_position": label_queue.index(label) + 1,
-            "barcode_number": barcode_number  # Return the barcode number
-        }
-    else:
-        return {
-            "message": "Label already in the queue",
-            "queue_position": label_queue.index(label) + 1,
-            "barcode_number": barcode_number  # Return the barcode number
-        }
+
+        return {"label": label}
+    except ValidationError as e:
+        return {"detail": str(e)}, 400
+    except Exception as e:
+        return {"detail": "Internal server error, please try again later."}, 500
+    
 
 
-
-@api.get("/label_queue", response=List[LabelSchema])
+@api.get("/label_queue", response=List[LabelOnlyResponseSchema])
 @permission_required('inventory.view_label_queue')
 def get_label_queue(request):
-    return label_queue
+    return [{"label": label} for label in label_queue]
 
 
 
-@api.delete("/remove_label", response=dict)
-@permission_required('inventory.remove_label')
-def remove_label(request, packaging_type_id: int):
-    global label_queue
-    label_queue = [label for label in label_queue if label["packaging_type_id"] != packaging_type_id]
-    return {"message": "Label removed from the queue"}
 
-
-
-@api.patch("/update_label_status", response=dict)
-@permission_required('inventory.update_label_status')
-def update_label_status(request, payload: UpdateLabelStatusRequestSchema):
-    for label in label_queue:
-        if label["packaging_type_id"] == payload.packaging_type_id:
-            label["status"] = payload.status
-            return {"message": "Label status updated"}
-    return {"message": "Label not found in the queue"}
 
 
 
@@ -934,37 +884,37 @@ def create_supplier(request, payload: SupplierSchema):
         print(f"Unexpected Error: {e}")
         raise HttpError(500, "Internal server error, please try again later.")
     
+    
+class PackagingRequirementsSchema(Schema):
+    sales_order_id: int
+    packaging_requirements: List[int]
 
 @api.post("/integration/sales/packaging-requirements/", response={200: dict})
 @permission_required('sales.submit_packaging_requirements')
-def submit_packaging_requirements(request, sales_order_id: int, packaging_requirements: List[int]):
+def submit_packaging_requirements(request, payload: PackagingRequirementsSchema):
     try:
-        sales_order = get_object_or_404(SalesOrder1, id=sales_order_id)
-        packaging_items = PackagingTypes.objects.filter(id__in=packaging_requirements)
-        sales_order.packaging_types.add(*packaging_items)
+        # Retrieve the sales record
+        sales_record = get_object_or_404(SalesRecord, id=payload.sales_order_id)
+        
+        # Retrieve the packaging items
+        packaging_items = PackagingTypes.objects.filter(id__in=payload.packaging_requirements)
+        
+        # Add the packaging items to the sales record
+        for packaging_item in packaging_items:
+            # Assuming you want to add packaging types as individual records
+            SalesRecord.objects.create(
+                order_number=sales_record.order_number,
+                package=packaging_item,
+                quantity=sales_record.quantity,
+                total_cost=sales_record.total_cost,
+                customer=sales_record.customer
+            )
+        
         return {"message": "Packaging requirements submitted successfully"}
     except Exception as e:
         print(f"Error: {e}")
         raise HttpError(500, "Internal server error, please try again later.")
 
-@api.get("/sales_orders", response=List[SalesOrderResponseSchema])
-@permission_required('sales.view_salesorder')
-@paginate(CustomPagination)
-def get_sales_orders(request, filters: SalesOrderFilterSchema = Query(...), sorting: SortingSchema = Query(...)):
-    try:
-        sales_orders = SalesOrder1.objects.all()
-        sales_orders = filters.filter(sales_orders)
-
-        if sorting.sort_by:
-            sort_order = '' if sorting.sort_order == 'asc' else '-'
-            sort_by_field = sorting.sort_by
-            sales_orders = sales_orders.order_by(f'{sort_order}{sort_by_field}')
-
-        return sales_orders
-
-    except Exception as e:
-        print(f"Error: {e}")
-        raise HttpError(500, "Internal server error, please try again later.")
 
 
 @api.get("/suppliers", response=List[SupplierResponseSchema])
@@ -1087,33 +1037,37 @@ def get_customers(request, filters: CustomerFilterSchema = Query(...)):
 @permission_required('sales.deliver_package')
 def deliver_package(request, payload: PackageDeliverySchema):
     try:
-        sales_order = get_object_or_404(SalesOrder1, id=payload.order_id)
-        sales_order.status = "Delivered"
-        sales_order.delivery_date = timezone.now()
-        sales_order.save()
-        return {"message": "Package delivered successfully", "order_id": sales_order.id}
+        sales_record = get_object_or_404(SalesRecord, id=payload.order_id)
+        sales_record.status = "Delivered"
+        sales_record.delivery_date = timezone.now()
+        sales_record.save()
+        return {"message": "Package delivered successfully", "order_id": sales_record.id}
     except Exception as e:
         print(f"Error: {e}")
         raise HttpError(500, "Internal server error, please try again later.")
-    
-
 
 @api.get("/customer/order-status", response={200: dict})
 @permission_required('sales.view_order_status')
 def order_status(request, order_id: int):
     try:
-        sales_order = get_object_or_404(SalesOrder1, id=order_id)
-        return {
-            "order_id": sales_order.id,
-            "order_number": sales_order.order_number,
-            "customer_name": sales_order.customer.name,
-            "order_date": sales_order.order_date,
-            "status": sales_order.status,
-            "packaging_types": [pt.name for pt in sales_order.packaging_types.all()]
+        print(f"Retrieving sales record for order_id: {order_id}")
+        sales_record = get_object_or_404(SalesRecord, id=order_id)
+        print(f"Sales record retrieved: {sales_record}")
+        
+        response_data = {
+            "order_id": sales_record.id,
+            "order_number": sales_record.order_number,
+            "customer_name": sales_record.customer.name if sales_record.customer else "N/A",
+            "status": sales_record.status,
+            "package_name": sales_record.package.name
         }
+        print(f"Response data: {response_data}")
+        
+        return response_data
     except Exception as e:
         print(f"Error: {e}")
         raise HttpError(500, "Internal server error, please try again later.")
+
 
 
 @api.get("/packaging_types/{parent_id}/children_count", response=dict)
@@ -1497,3 +1451,35 @@ def get_supplier_material_usage(request, supplier_id: int):
     except Exception as e:
         logger.error(f"Internal server error: {str(e)}")
         raise HttpError(500, "Internal server error, please try again later.")
+
+
+def update_total_cost(packaging_type):
+    total_cost = packaging_type.cost
+    children = PackagingTypes.objects.filter(parent=packaging_type)
+    for child in children:
+        total_cost += update_total_cost(child)
+    packaging_type.total_cost = total_cost
+    packaging_type.save()
+    return total_cost
+
+
+@api.put("/packaging_types/{parent_id}/remove_child", response=PackagingTypesSchema)
+@permission_required('inventory.change_packagingtypes')
+def remove_child_package(request, parent_id: int, child_id: int):
+    try:
+        parent = get_object_or_404(PackagingTypes, id=parent_id)
+        child = get_object_or_404(PackagingTypes, id=child_id)
+        if child.parent != parent:
+            raise HttpError(400, "Specified child does not belong to the given parent")
+        
+        child.parent = None
+        child.save()
+        update_total_cost(parent)  # Update the total cost after removing the child
+        
+        return PackagingTypesSchema.from_orm(child)
+    except Exception as e:
+        logger.error(f"Internal server error: {str(e)}")
+        raise HttpError(500, "Internal server error, please try again later.")
+
+
+

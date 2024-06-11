@@ -325,15 +325,6 @@ class SalesRecordFilterSchema(FilterSchema):
 
 
 
-
-
-
-
-
-
-
-
-
 class BillItemSchema(Schema):
     order_number: str
     package_name: str
@@ -347,14 +338,13 @@ class BillSchema1(Schema):
 
 
 
-
 class SalesRecordSchema(Schema):
     order_number: str
     package_id: int
     quantity: int
     total_cost: float
-    customer_name:Optional[str]  # Add this field
-
+    customer_name: Optional[str]  # Add this field
+    status: str  # Add the status field
 
 
 class CreateSalesSchema(BaseModel):

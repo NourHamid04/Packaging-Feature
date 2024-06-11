@@ -1,5 +1,4 @@
 
-
 from django.db import models
 from django.utils import timezone
 from .enums import PackagingLevel
@@ -210,13 +209,16 @@ class Supplier(models.Model):
     def __str__(self):
         return self.name
 
-
 class SalesRecord(models.Model):
     order_number = models.CharField(max_length=50)
     package = models.ForeignKey('PackagingTypes', on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField()
     total_cost = models.DecimalField(max_digits=10, decimal_places=2)
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE,null=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, null=True)
+    status = models.CharField(max_length=20, default="Pending")
+    delivery_date = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Order {self.order_number} - {self.package.name} x {self.quantity}"
+
+
